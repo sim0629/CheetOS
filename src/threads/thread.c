@@ -81,6 +81,11 @@ static bool wait_less (const struct list_elem *lhs,
                        void *aux);
 static void check_wait_list (void);
 
+static bool priority_greater (const struct list_elem *lhs,
+                              const struct list_elem *rhs,
+                              void *aux);
+static void push_ready_list (struct thread *);
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -170,11 +175,7 @@ thread_print_stats (void)
    before thread_create() returns.  Contrariwise, the original
    thread may run for any amount of time before the new thread is
    scheduled.  Use a semaphore or some other form of
-   synchronization if you need to ensure ordering.
-
-   The code provided sets the new thread's `priority' member to
-   PRIORITY, but no actual priority scheduling is implemented.
-   Priority scheduling is the goal of Problem 1-3. */
+   synchronization if you need to ensure ordering. */
 tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
@@ -214,6 +215,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  thread_yield ();
+
   return tid;
 }
 
@@ -250,7 +253,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  push_ready_list (t);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -321,7 +324,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    push_ready_list (cur);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -365,6 +368,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -639,4 +643,23 @@ check_wait_list (void)
       thread_unblock (t);
     }
   intr_set_level (old_level);
+}
+
+/* The list less func for threads' priority in the ready queue. */
+static bool
+priority_greater (const struct list_elem *lhs,
+                  const struct list_elem *rhs,
+                  void *aux UNUSED)
+{
+  struct thread *tl = list_entry (lhs, struct thread, elem);
+  struct thread *tr = list_entry (rhs, struct thread, elem);
+  return tl->priority > tr->priority;
+}
+
+/* Push the given thread to the ready queue according to the priority. */
+static void
+push_ready_list (struct thread *t)
+{
+  ASSERT (intr_get_level () == INTR_OFF);
+  list_insert_ordered (&ready_list, &t->elem, &priority_greater, NULL);
 }
