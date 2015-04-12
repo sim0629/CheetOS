@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "devices/timer.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -23,6 +24,10 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* List of processes that are sleeping
+   but not actually running or being ready. */
+static struct list wait_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -71,6 +76,11 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static bool wait_less (const struct list_elem *lhs,
+                       const struct list_elem *rhs,
+                       void *aux);
+static void check_wait_list (void);
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -91,6 +101,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&wait_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -137,6 +148,8 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+
+  check_wait_list ();
 }
 
 /* Prints thread statistics. */
@@ -311,6 +324,22 @@ thread_yield (void)
     list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
+  intr_set_level (old_level);
+}
+
+/* Push current thread to the wait queue. */
+void
+thread_sleep (int64_t ticks)
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  cur->wait_until = timer_ticks () + ticks;
+  list_insert_ordered (&wait_list, &cur->elem, &wait_less, NULL);
+  thread_block ();
   intr_set_level (old_level);
 }
 
@@ -582,3 +611,32 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/* The list less func for threads in the wait queue. */
+static bool
+wait_less (const struct list_elem *lhs,
+           const struct list_elem *rhs,
+           void *aux UNUSED)
+{
+  struct thread *tl = list_entry (lhs, struct thread, elem);
+  struct thread *tr = list_entry (rhs, struct thread, elem);
+  return tl->wait_until < tr->wait_until;
+}
+
+/* Check the wait queue. Pop expired threads to the ready queue. */
+void
+check_wait_list (void)
+{
+  enum intr_level old_level = intr_disable ();
+  int64_t ticks = timer_ticks ();
+  while (!list_empty (&wait_list))
+    {
+      struct thread *t = list_entry (list_front (&wait_list),
+                                     struct thread, elem);
+      if (t->wait_until > ticks)
+        break;
+      list_pop_front (&wait_list);
+      thread_unblock (t);
+    }
+  intr_set_level (old_level);
+}
