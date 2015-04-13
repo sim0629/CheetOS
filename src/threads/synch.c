@@ -32,9 +32,15 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static void sema_down_with_donation (struct semaphore *sema,
+                                     struct lock *lock);
+static void sema_up_with_donation (struct semaphore *sema,
+                                   struct lock *lock);
 static bool priority_less (const struct list_elem *lhs,
                            const struct list_elem *rhs,
                            void *aux UNUSED);
+static void donate_priority (struct thread *t, struct lock *l);
+static void update_donating_priority (struct lock *l);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -55,9 +61,10 @@ sema_init (struct semaphore *sema, unsigned value)
 }
 
 /* Sema down with priority donation. */
-void
+static void
 sema_down_with_donation (struct semaphore *sema, struct lock *lock)
 {
+  struct thread *cur = thread_current ();
   enum intr_level old_level;
 
   ASSERT (sema != NULL);
@@ -66,18 +73,20 @@ sema_down_with_donation (struct semaphore *sema, struct lock *lock)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      struct thread *cur = thread_current ();
       if (lock)
-      {
-        if (cur->priority > lock->holder->priority)
-        {
-          lock->holder->priority = cur->priority;
-        }
-      }
+        donate_priority (cur, lock);
       list_push_back (&sema->waiters, &cur->elem);
       thread_block ();
+      if (lock)
+        update_donating_priority (lock);
     }
   sema->value--;
+  if (lock)
+    {
+      cur->waiting_lock = NULL;
+      list_push_back (&cur->holding_locks, &lock->held_elem);
+      lock->holder = cur;
+    }
   intr_set_level (old_level);
 }
 
@@ -121,7 +130,7 @@ sema_try_down (struct semaphore *sema)
 }
 
 /* Sema up with priority donation. */
-void
+static void
 sema_up_with_donation (struct semaphore *sema, struct lock *lock)
 {
   enum intr_level old_level;
@@ -135,12 +144,19 @@ sema_up_with_donation (struct semaphore *sema, struct lock *lock)
       struct list_elem *e = list_max (&sema->waiters, &priority_less, NULL);
       struct thread *t = list_entry (e, struct thread, elem);
       list_remove (e);
-      t->priority = t->original_priority;
       thread_unblock (t);
       yield_needed = true;
     }
 
   sema->value++;
+  if (lock)
+    {
+      struct thread *cur = thread_current ();
+      lock->holder = NULL;
+      list_remove (&lock->held_elem);
+      if (cur->priority == lock->donating_priority)
+        thread_update_priority (cur);
+    }
   intr_set_level (old_level);
 
   if (yield_needed)
@@ -215,6 +231,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->donating_priority = PRI_MIN - 1;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -234,7 +251,6 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   sema_down_with_donation (&lock->semaphore, lock);
-  lock->holder = thread_current ();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -268,7 +284,6 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  lock->holder = NULL;
   sema_up_with_donation (&lock->semaphore, lock);
 }
 
@@ -383,4 +398,48 @@ priority_less (const struct list_elem *lhs,
   struct thread *tl = list_entry (lhs, struct thread, elem);
   struct thread *tr = list_entry (rhs, struct thread, elem);
   return tl->priority < tr->priority;
+}
+
+/* Donate priority to the thread accoring to the lock. */
+static void
+donate_priority (struct thread *t, struct lock *l)
+{
+  int priority = t->priority;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+
+  t->waiting_lock = l;
+
+  while (l != NULL)
+    {
+      if (l->donating_priority >= priority)
+        break;
+      l->donating_priority = priority;
+      t = l->holder;
+      if (t == NULL)
+        break;
+      if (t->priority >= priority)
+        break;
+      thread_donate_priority (t, priority);
+      l = t->waiting_lock;
+    }
+}
+
+/* Sets donating priority to the highest priority of threads in waiters
+   of the given lock. */
+static void
+update_donating_priority (struct lock *l)
+{
+  struct list *waiters = &l->semaphore.waiters;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+
+  if (list_empty (waiters))
+    l->donating_priority = PRI_MIN - 1;
+  else
+  {
+    struct list_elem *e = list_max (waiters, &priority_less, NULL);
+    struct thread *t = list_entry (e, struct thread, elem);
+    l->donating_priority = t->priority;
+  }
 }

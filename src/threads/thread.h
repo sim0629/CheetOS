@@ -91,6 +91,8 @@ struct thread
     int original_priority;              /* Priority regardless of donations. */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t wait_until;                 /* Wait until the ticks */
+    struct list holding_locks;          /* List of locks holded by thread. */
+    struct lock *waiting_lock;          /* Lock waiting. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -136,6 +138,9 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+
+void thread_donate_priority (struct thread *t, int priority);
+void thread_update_priority (struct thread *t);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
