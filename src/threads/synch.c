@@ -159,7 +159,7 @@ sema_up_with_donation (struct semaphore *sema, struct lock *lock)
     }
   intr_set_level (old_level);
 
-  if (yield_needed)
+  if (yield_needed && !intr_context ())
     thread_yield ();
 }
 
