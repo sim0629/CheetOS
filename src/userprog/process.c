@@ -19,38 +19,51 @@
 #include "threads/vaddr.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (char *args_page, void (**eip) (void), void **esp);
+static void parse_args (char *cmdline_page, char *args_page);
 
 /* Starts a new thread running a user program loaded from
-   FILENAME.  The new thread may be scheduled (and may even exit)
+   CMDLINE.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmdline)
 {
-  char *fn_copy;
+  char *cmdline_page, *args_page;
+  const char *file_name;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  cmdline_page = palloc_get_page (0);
+  if (cmdline_page == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  args_page = palloc_get_page (0);
+  if (args_page == NULL)
+    {
+      palloc_free_page (cmdline_page);
+      return TID_ERROR;
+    }
+
+  strlcpy (cmdline_page, cmdline, PGSIZE);
+  parse_args (cmdline_page, args_page);
+  file_name = cmdline_page;
+
+  /* Create a new thread to execute FILE_NAME with ARGS_PAGE. */
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, args_page);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (args_page);
+
+  palloc_free_page (cmdline_page);
+
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *args_page_)
 {
-  char *file_name = file_name_;
+  char *args_page = args_page_;
   struct intr_frame if_;
   bool success;
 
@@ -59,10 +72,10 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (args_page, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (args_page);
   if (!success) 
     thread_exit ();
 
@@ -195,18 +208,18 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *args_page);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-/* Loads an ELF executable from FILE_NAME into the current thread.
+/* Loads an ELF executable from ARGS_PAGE into the current thread.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (char *args_page, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -214,6 +227,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  const char *file_name = args_page + sizeof (size_t);
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -302,7 +316,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, args_page))
     goto done;
 
   /* Start address. */
@@ -427,21 +441,53 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *args_page)
 {
   uint8_t *kpage;
-  bool success = false;
+  char *stack;
+  size_t argc, i, arg_len;
+  char *arg, *arg_ptr;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  if (kpage == NULL)
+    return false;
+
+  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
+      palloc_free_page (kpage);
+      return false;
     }
-  return success;
+
+  *esp = PHYS_BASE;
+  stack = arg_ptr = (char *)(*esp);
+  argc = *(size_t *)args_page;
+
+  arg = args_page + sizeof (size_t);
+  for (i = 0; i < argc; i++)
+    {
+      arg_len = strlen (arg);
+      stack -= arg_len + 1; strlcpy (stack, arg, arg_len + 1);
+      arg += arg_len + 1;
+    }
+
+  /* Word-align */
+  stack = (char *)((uintptr_t)stack & ~(uintptr_t)(4 - 1));
+
+  stack -= sizeof (char *); *(char **)stack = NULL;
+
+  arg = args_page + sizeof (size_t);
+  for (i = 0; i < argc; i++)
+    {
+      arg_len = strlen (arg);
+      stack -= sizeof (char *); *(char **)stack = (arg_ptr -= arg_len + 1);
+      arg += arg_len + 1;
+    }
+
+  stack -= sizeof (char *); *(char **)stack = stack + sizeof (char *);
+  stack -= sizeof (size_t); *(size_t *)stack = argc;
+  stack -= sizeof (void *); *(void **)stack = NULL;
+  *esp = stack;
+  return true;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -462,4 +508,27 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+static void
+parse_args (char *cmdline_page, char *args_page)
+{
+  const char *delim = " ";
+  char *ctx;
+  const char *token;
+  size_t token_len;
+  size_t *argc_ptr = (size_t *)args_page;
+
+  args_page += sizeof (size_t);
+  *argc_ptr = 0;
+
+  token = strtok_r (cmdline_page, delim, &ctx);
+  while (token != NULL)
+    {
+      token_len = strlen (token);
+      strlcpy (args_page, token, token_len + 1);
+      args_page += token_len + 1;
+      (*argc_ptr)++;
+      token = strtok_r (NULL, delim, &ctx);
+    }
 }
