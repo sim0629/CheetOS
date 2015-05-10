@@ -104,9 +104,17 @@ process_wait (tid_t child_tid UNUSED)
   return -1;
 }
 
+/* Exit current process. */
+void
+process_exit (int status UNUSED)
+{
+  // TODO: set exit_status
+  thread_exit ();
+}
+
 /* Free the current process's resources. */
 void
-process_exit (void)
+process_thread_exit ()
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;

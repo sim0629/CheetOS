@@ -5,12 +5,14 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
 static uint8_t get_user_byte (const uint8_t *addr);
 static void put_user_byte (uint8_t *addr, uint8_t value);
 static int get_user_int (const int *addr);
 static void put_user_int (int *addr, int value);
+static void check_user_string (const char *str);
 
 void
 syscall_init (void) 
@@ -25,21 +27,28 @@ sys_halt (struct intr_frame *f UNUSED)
 }
 
 static void
-sys_exit (struct intr_frame *f UNUSED)
+sys_exit (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int code = get_user_int (++p);
+  process_exit (code);
 }
 
 static void
-sys_exec (struct intr_frame *f UNUSED)
+sys_exec (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  const char *cmdline = (const char *)get_user_int (++p);
+  check_user_string (cmdline);
+  f->eax = process_execute (cmdline);
 }
 
 static void
-sys_wait (struct intr_frame *f UNUSED)
+sys_wait (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  pid_t pid = get_user_int (++p);
+  f->eax = process_wait (pid);
 }
 
 static void
@@ -222,4 +231,12 @@ put_user_int (int *addr, int value)
        : "=&d" (fail), "=m" (*addr) : "r" (value) : "eax");
   if (fail)
     thread_exit ();
+}
+
+/* Check the string at user address is accessible. */
+static void
+check_user_string (const char *str)
+{
+  while (get_user_byte ((const uint8_t *)str) != '\0')
+    str++;
 }
