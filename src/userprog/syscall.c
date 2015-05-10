@@ -18,10 +18,133 @@ syscall_init (void)
 }
 
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
+sys_halt (struct intr_frame *f UNUSED)
 {
-  printf ("system call!\n");
-  thread_exit ();
+  ASSERT (0);
+}
+
+static void
+sys_exit (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_exec (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_wait (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_create (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_remove (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_open (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_filesize (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_read (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_write (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_seek (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_tell (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+sys_close (struct intr_frame *f UNUSED)
+{
+  ASSERT (0);
+}
+
+static void
+syscall_handler (struct intr_frame *f)
+{
+  int n = get_user_int (f->esp);
+  switch (n)
+  {
+    case SYS_HALT:
+      sys_halt (f);
+      break;
+    case SYS_EXIT:
+      sys_exit (f);
+      break;
+    case SYS_EXEC:
+      sys_exec (f);
+      break;
+    case SYS_WAIT:
+      sys_wait (f);
+      break;
+    case SYS_CREATE:
+      sys_create (f);
+      break;
+    case SYS_REMOVE:
+      sys_remove (f);
+      break;
+    case SYS_OPEN:
+      sys_open (f);
+      break;
+    case SYS_FILESIZE:
+      sys_filesize (f);
+      break;
+    case SYS_READ:
+      sys_read (f);
+      break;
+    case SYS_WRITE:
+      sys_write (f);
+      break;
+    case SYS_SEEK:
+      sys_seek (f);
+      break;
+    case SYS_TELL:
+      sys_tell (f);
+      break;
+    case SYS_CLOSE:
+      sys_close (f);
+      break;
+    default:
+      printf ("Unknown system call: %d\n", n);
+      thread_exit ();
+      break;
+  }
 }
 
 /* Reads a byte at user virtual address ADDR.
