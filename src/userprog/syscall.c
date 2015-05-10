@@ -3,8 +3,13 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
+static uint8_t get_user_byte (const uint8_t *addr);
+static void put_user_byte (uint8_t *addr, uint8_t value);
+static int get_user_int (const int *addr);
+static void put_user_int (int *addr, int value);
 
 void
 syscall_init (void) 
@@ -17,4 +22,80 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   printf ("system call!\n");
   thread_exit ();
+}
+
+/* Reads a byte at user virtual address ADDR.
+   ADDR must be below PHYS_BASE.
+   Returns the byte value if successful, otherwise exit thread. */
+static uint8_t
+get_user_byte (const uint8_t *addr)
+{
+  int result, fail;
+  if ((uintptr_t)addr >= (uintptr_t)PHYS_BASE)
+    thread_exit ();
+  asm ("movl $1f, %0\n"
+       "xor %1, %1\n"
+       "movzbl %2, %0\n"
+       "1:"
+       : "=&a" (result), "=&d" (fail) : "m" (*addr));
+  if (fail)
+    thread_exit ();
+  return result;
+}
+
+/* Writes byte VALUE to user address ADDR.
+   ADDR must be below PHYS_BASE.
+   Exit thread if a segfault occurred. */
+static void
+put_user_byte (uint8_t *addr, uint8_t value)
+{
+  int fail;
+  if ((uintptr_t)addr >= (uintptr_t)PHYS_BASE)
+    thread_exit ();
+  asm ("movl $1f, %%eax\n"
+       "xor %0, %0\n"
+       "movb %2, %1\n"
+       "1:"
+       : "=&d" (fail), "=m" (*addr) : "r" (value) : "eax");
+  if (fail)
+    thread_exit ();
+}
+
+/* Reads a int at user virtual address ADDR.
+   ADDR + 3 must be below PHYS_BASE.
+   Returns the int value if successful, otherwise exit thread. */
+static int
+get_user_int (const int *addr)
+{
+  int result, fail;
+  if ((uintptr_t)addr >= (uintptr_t)PHYS_BASE
+      || (uintptr_t)addr + 3 >= (uintptr_t)PHYS_BASE)
+    thread_exit ();
+  asm ("movl $1f, %0\n"
+       "xor %1, %1\n"
+       "movl %2, %0\n"
+       "1:"
+       : "=&a" (result), "=&d" (fail) : "m" (*addr));
+  if (fail)
+    thread_exit ();
+  return result;
+}
+
+/* Writes int VALUE to user address ADDR.
+   ADDR + 3 must be below PHYS_BASE.
+   Exit thread if a segfault occurred. */
+static void
+put_user_int (int *addr, int value)
+{
+  int fail;
+  if ((uintptr_t)addr >= (uintptr_t)PHYS_BASE
+      || (uintptr_t)addr + 3 >= (uintptr_t)PHYS_BASE)
+    thread_exit ();
+  asm ("movl $1f, %%eax\n"
+       "xor %0, %0\n"
+       "movl %2, %1\n"
+       "1:"
+       : "=&d" (fail), "=m" (*addr) : "r" (value) : "eax");
+  if (fail)
+    thread_exit ();
 }
