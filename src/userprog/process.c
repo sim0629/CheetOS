@@ -297,7 +297,7 @@ load (char *args_page, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-  const char *file_name = args_page + sizeof (size_t);
+  const char *file_name = *(const char **)(args_page + sizeof (size_t));
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -516,7 +516,7 @@ setup_stack (void **esp, char *args_page)
   uint8_t *kpage;
   char *stack;
   size_t argc, i, arg_len;
-  char *arg, *arg_ptr;
+  char *arg;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage == NULL)
@@ -529,15 +529,18 @@ setup_stack (void **esp, char *args_page)
     }
 
   *esp = PHYS_BASE;
-  stack = arg_ptr = (char *)(*esp);
+  stack = (char *)(*esp);
   argc = *(size_t *)args_page;
 
-  arg = args_page + sizeof (size_t);
-  for (i = 0; i < argc; i++)
+  for (i = argc; i > 0; i--)
     {
+      uintptr_t arg_ptr = (uintptr_t)args_page +
+                          sizeof (size_t) +
+                          (i - 1) * sizeof (char *);
+      arg = *(char **)arg_ptr;
       arg_len = strlen (arg);
       stack -= arg_len + 1; strlcpy (stack, arg, arg_len + 1);
-      arg += arg_len + 1;
+      *(char **)arg_ptr = stack;
     }
 
   /* Word-align */
@@ -545,12 +548,12 @@ setup_stack (void **esp, char *args_page)
 
   stack -= sizeof (char *); *(char **)stack = NULL;
 
-  arg = args_page + sizeof (size_t);
-  for (i = 0; i < argc; i++)
+  for (i = argc; i > 0; i--)
     {
-      arg_len = strlen (arg);
-      stack -= sizeof (char *); *(char **)stack = (arg_ptr -= arg_len + 1);
-      arg += arg_len + 1;
+      uintptr_t arg_ptr = (uintptr_t)args_page +
+                          sizeof (size_t) +
+                          (i - 1) * sizeof (char *);
+      stack -= sizeof (char *); *(char **)stack = *(char **)arg_ptr;
     }
 
   stack -= sizeof (char *); *(char **)stack = stack + sizeof (char *);
@@ -580,6 +583,14 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
+/* Construct ARGS_PAGE with CMDLINE_PAGE.
+   Layout of ARGS_PAGE is shown below.
+   | argc         |
+   | argv[0]      |
+   | argv[1]      |
+   | ...          |
+   | argv[0][...] |
+   | argv[1][...] | */
 static void
 parse_args (char *cmdline_page, char *args_page)
 {
@@ -587,19 +598,29 @@ parse_args (char *cmdline_page, char *args_page)
   char *ctx;
   const char *token;
   size_t token_len;
-  size_t *argc_ptr = (size_t *)args_page;
-
-  args_page += sizeof (size_t);
-  *argc_ptr = 0;
+  size_t argc = 0, i;
+  unsigned offset = sizeof (size_t); /* 0 for ARGC */
 
   token = strtok_r (cmdline_page, delim, &ctx);
   while (token != NULL)
     {
-      token_len = strlen (token);
-      strlcpy (args_page, token, token_len + 1);
-      args_page += token_len + 1;
-      (*argc_ptr)++;
+      *(const char **)(args_page + offset) = token;
+      offset += sizeof (const char *);
+      argc++;
       token = strtok_r (NULL, delim, &ctx);
+    }
+
+  *(size_t *)args_page = argc;
+  for (i = 0; i < argc; i++)
+    {
+      uintptr_t arg_ptr = (uintptr_t)args_page +
+                          sizeof (size_t) +
+                          i * sizeof (const char *);
+      token = *(const char **)arg_ptr;
+      token_len = strlen (token);
+      strlcpy (args_page + offset, token, token_len + 1);
+      *(const char **)arg_ptr = args_page + offset;
+      offset += token_len + 1;
     }
 }
 
