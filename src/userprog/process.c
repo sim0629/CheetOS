@@ -18,9 +18,23 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+static struct list all_list;
+static struct lock list_mutex;
+
 static thread_func start_process NO_RETURN;
 static bool load (char *args_page, void (**eip) (void), void **esp);
 static void parse_args (char *cmdline_page, char *args_page);
+static struct process *get_proc_from_id (pid_t pid);
+static void make_children_orphan (pid_t pid);
+static void reap_proc (struct process *proc);
+
+void
+process_init ()
+{
+  ASSERT (intr_get_level () == INTR_OFF);
+  list_init (&all_list);
+  lock_init (&list_mutex);
+}
 
 /* Starts a new thread running a user program loaded from
    CMDLINE.  The new thread may be scheduled (and may even exit)
@@ -32,6 +46,8 @@ process_execute (const char *cmdline)
   char *cmdline_page, *args_page;
   const char *file_name;
   tid_t tid;
+  char *pcb;
+  struct process *proc;
 
   cmdline_page = palloc_get_page (0);
   if (cmdline_page == NULL)
@@ -44,14 +60,40 @@ process_execute (const char *cmdline)
       return TID_ERROR;
     }
 
+  pcb = palloc_get_page (0);
+  if (pcb == NULL)
+    {
+      palloc_free_page (args_page);
+      palloc_free_page (cmdline_page);
+      return TID_ERROR;
+    }
+
   strlcpy (cmdline_page, cmdline, PGSIZE);
   parse_args (cmdline_page, args_page);
   file_name = cmdline_page;
 
+  proc = (struct process *)pcb;
+  proc->pid = TID_ERROR; // will be filled at thread_create_process
+  proc->ppid = thread_tid ();
+  proc->exit_code = -1;
+  sema_init (&proc->listed, 0);
+  sema_init (&proc->exited, 0);
+
   /* Create a new thread to execute FILE_NAME with ARGS_PAGE. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, args_page);
+  tid = thread_create_process (file_name, PRI_DEFAULT, start_process,
+                               args_page, proc);
   if (tid == TID_ERROR)
-    palloc_free_page (args_page);
+    {
+      palloc_free_page (pcb);
+      palloc_free_page (args_page);
+    }
+  else
+    {
+      lock_acquire (&list_mutex);
+      list_push_back (&all_list, &proc->allelem);
+      lock_release (&list_mutex);
+      sema_up (&proc->listed);
+    }
 
   palloc_free_page (cmdline_page);
 
@@ -94,21 +136,29 @@ start_process (void *args_page_)
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid)
 {
-  return -1;
+  int status = -1;
+  struct process *child_proc = get_proc_from_id (child_tid);
+  if (child_proc == NULL || child_proc->ppid != thread_tid ())
+    return status;
+
+  sema_down (&child_proc->exited);
+
+  status = child_proc->exit_code;
+  reap_proc (child_proc);
+  return status;
 }
 
 /* Exit current process. */
 void
-process_exit (int status UNUSED)
+process_exit (int status)
 {
-  // TODO: set exit_status
+  struct process *proc = thread_current ()->proc;
+  if (proc != NULL)
+    proc->exit_code = status;
   thread_exit ();
 }
 
@@ -117,7 +167,19 @@ void
 process_thread_exit ()
 {
   struct thread *cur = thread_current ();
+  struct process *proc = cur->proc;
   uint32_t *pd;
+
+  if (proc != NULL)
+    {
+      cur->proc = NULL;
+      printf ("%s: exit(%d)\n", cur->name, proc->exit_code);
+      make_children_orphan (proc->pid);
+      if (proc->ppid == TID_ERROR)
+        reap_proc (proc);
+      else
+        sema_up (&proc->exited);
+    }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -539,4 +601,54 @@ parse_args (char *cmdline_page, char *args_page)
       (*argc_ptr)++;
       token = strtok_r (NULL, delim, &ctx);
     }
+}
+
+static struct process *
+get_proc_from_id (pid_t pid)
+{
+  struct process *proc = NULL;
+  lock_acquire (&list_mutex);
+  {
+    struct list_elem *e = list_begin (&all_list);
+    struct list_elem *f = list_end (&all_list);
+    for (; e != f; e = list_next (e))
+      {
+        struct process *p = list_entry (e, struct process, allelem);
+        if (p->pid == pid)
+          {
+            proc = p;
+            break;
+          }
+      }
+  }
+  lock_release (&list_mutex);
+  return proc;
+}
+
+static void
+make_children_orphan (pid_t pid)
+{
+  lock_acquire (&list_mutex);
+  {
+    struct list_elem *e = list_begin (&all_list);
+    struct list_elem *f = list_end (&all_list);
+    for (; e != f; e = list_next (e))
+      {
+        struct process *p = list_entry (e, struct process, allelem);
+        if (p->ppid == pid)
+          p->ppid = TID_ERROR;
+      }
+  }
+  lock_release (&list_mutex);
+}
+
+static void
+reap_proc (struct process *proc)
+{
+  sema_down (&proc->listed);
+
+  lock_acquire (&list_mutex);
+  list_remove (&proc->allelem);
+  lock_release (&list_mutex);
+  palloc_free_page (proc);
 }

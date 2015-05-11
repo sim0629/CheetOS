@@ -180,6 +180,15 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
+  return thread_create_process (name, priority, function, aux, NULL);
+}
+
+/* Create a new kernel thread associated with process PROC. */
+tid_t
+thread_create_process (const char *name, int priority,
+                       thread_func *function, void *aux,
+                       struct process *proc)
+{
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -196,6 +205,13 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+
+  /* Fill struct process. */
+  if (proc != NULL)
+  {
+    t->proc = proc;
+    proc->pid = tid;
+  }
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
