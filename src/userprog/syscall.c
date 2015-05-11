@@ -13,6 +13,7 @@ static void put_user_byte (uint8_t *addr, uint8_t value);
 static int get_user_int (const int *addr);
 static void put_user_int (int *addr, int value);
 static void check_user_string (const char *str);
+static void check_user_buffer (const void *buffer, size_t size);
 
 void
 syscall_init (void) 
@@ -82,9 +83,25 @@ sys_read (struct intr_frame *f UNUSED)
 }
 
 static void
-sys_write (struct intr_frame *f UNUSED)
+sys_write (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  const void *buffer = (const void *)get_user_int (++p);
+  unsigned size = (unsigned)get_user_int (++p);
+
+  if (size == 0)
+    return;
+
+  if (fd == STDOUT_FILENO)
+    {
+      check_user_buffer (buffer, size);
+      putbuf (buffer, size);
+      f->eax = size;
+      return;
+    }
+
+  // TODO: otherwise
 }
 
 static void
@@ -239,4 +256,16 @@ check_user_string (const char *str)
 {
   while (get_user_byte ((const uint8_t *)str) != '\0')
     str++;
+}
+
+/* Check the buffer with size at user address is accessible. */
+static void
+check_user_buffer (const void *buffer, size_t size)
+{
+  size_t i;
+  if (size == 0)
+    return;
+  for (i = 0; i < size; i += PGSIZE)
+    get_user_byte ((const uint8_t *)buffer + i);
+  get_user_byte ((const uint8_t *)buffer + (size - 1));
 }
