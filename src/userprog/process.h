@@ -21,6 +21,7 @@ struct process
     struct lock fd_mutex;
 
     struct semaphore listed;
+    struct semaphore loaded;
     struct semaphore exited;
 
     /* Owned by process.c */

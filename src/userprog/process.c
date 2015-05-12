@@ -81,6 +81,7 @@ process_execute (const char *cmdline)
   memset (proc->files, 0, sizeof (proc->files));
   lock_init (&proc->fd_mutex);
   sema_init (&proc->listed, 0);
+  sema_init (&proc->loaded, 0);
   sema_init (&proc->exited, 0);
 
   /* Create a new thread to execute FILE_NAME with ARGS_PAGE. */
@@ -100,6 +101,13 @@ process_execute (const char *cmdline)
     }
 
   palloc_free_page (cmdline_page);
+
+  sema_down (&proc->loaded);
+  if (proc->executable == NULL) /* load fail */
+    {
+      process_wait (tid);
+      return TID_ERROR;
+    }
 
   return tid;
 }
@@ -322,9 +330,6 @@ load (char *args_page, void (**eip) (void), void **esp)
 
   file_deny_write (file);
 
-  ASSERT (t->proc != NULL);
-  t->proc->executable = file;
-
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -405,10 +410,12 @@ load (char *args_page, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
+  t->proc->executable = file;
 
  done:
   /* We arrive here whether the load is successful or not. */
   lock_release (&filesys_mutex);
+  sema_up (&t->proc->loaded);
   return success;
 }
 
