@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -15,7 +16,7 @@ static void put_user_byte (uint8_t *addr, uint8_t value);
 static int get_user_int (const int *addr);
 static void put_user_int (int *addr, int value);
 static void check_user_string (const char *str);
-static void check_user_buffer (const void *buffer, size_t size);
+static void check_user_buffer (const void *buffer, size_t size, bool writable);
 
 void
 syscall_init (void) 
@@ -95,15 +96,51 @@ sys_open (struct intr_frame *f)
 }
 
 static void
-sys_filesize (struct intr_frame *f UNUSED)
+sys_filesize (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      f->eax = file_length (fp);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
-sys_read (struct intr_frame *f UNUSED)
+sys_read (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  void *buffer = (void *)get_user_int (++p);
+  unsigned size = (unsigned)get_user_int (++p);
+
+  if (size == 0)
+    {
+      f->eax = 0;
+      return;
+    }
+
+  if (fd == STDIN_FILENO)
+    {
+      unsigned i;
+      for (i = 0; i < size; i++)
+        put_user_byte ((uint8_t *)buffer + i, input_getc ());
+      f->eax = i;
+      return;
+    }
+
+  check_user_buffer (buffer, size, true);
+
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      f->eax = file_read (fp, buffer, size);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
@@ -115,17 +152,27 @@ sys_write (struct intr_frame *f)
   unsigned size = (unsigned)get_user_int (++p);
 
   if (size == 0)
-    return;
+    {
+      f->eax = 0;
+      return;
+    }
+
+  check_user_buffer (buffer, size, false);
 
   if (fd == STDOUT_FILENO)
     {
-      check_user_buffer (buffer, size);
       putbuf (buffer, size);
       f->eax = size;
       return;
     }
 
-  // TODO: otherwise
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      f->eax = file_write (fp, buffer, size);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
@@ -295,12 +342,19 @@ check_user_string (const char *str)
 
 /* Check the buffer with size at user address is accessible. */
 static void
-check_user_buffer (const void *buffer, size_t size)
+check_user_buffer (const void *buffer, size_t size, bool writable)
 {
   size_t i;
+  uint8_t b;
   if (size == 0)
     return;
   for (i = 0; i < size; i += PGSIZE)
-    get_user_byte ((const uint8_t *)buffer + i);
-  get_user_byte ((const uint8_t *)buffer + (size - 1));
+    {
+      b = get_user_byte ((const uint8_t *)buffer + i);
+      if (writable)
+        put_user_byte ((uint8_t *)buffer + i, b);
+    }
+  b = get_user_byte ((const uint8_t *)buffer + (size - 1));
+  if (writable)
+    put_user_byte ((uint8_t *)buffer + (size - 1), b);
 }
