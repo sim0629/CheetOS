@@ -27,6 +27,7 @@ static void parse_args (char *cmdline_page, char *args_page);
 static struct process *get_proc_from_id (pid_t pid);
 static void make_children_orphan (pid_t pid);
 static void reap_proc (struct process *proc);
+static void close_all_files (void);
 
 void
 process_init ()
@@ -76,6 +77,7 @@ process_execute (const char *cmdline)
   proc->pid = TID_ERROR; // will be filled at thread_create_process
   proc->ppid = thread_tid ();
   proc->exit_code = -1;
+  proc->executable = NULL;
   memset (proc->files, 0, sizeof (proc->files));
   lock_init (&proc->fd_mutex);
   sema_init (&proc->listed, 0);
@@ -174,6 +176,7 @@ process_thread_exit ()
 
   if (proc != NULL)
     {
+      close_all_files ();
       cur->proc = NULL;
       printf ("%s: exit(%d)\n", cur->name, proc->exit_code);
       make_children_orphan (proc->pid);
@@ -307,6 +310,8 @@ load (char *args_page, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  lock_acquire (&filesys_mutex);
+
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -314,6 +319,11 @@ load (char *args_page, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+
+  file_deny_write (file);
+
+  ASSERT (t->proc != NULL);
+  t->proc->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -398,7 +408,7 @@ load (char *args_page, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  lock_release (&filesys_mutex);
   return success;
 }
 
@@ -725,4 +735,30 @@ process_free_fd (int fd)
   lock_acquire (&proc->fd_mutex);
   proc->files[i] = NULL;
   lock_release (&proc->fd_mutex);
+}
+
+static void
+close_all_files ()
+{
+  struct process *proc = thread_current ()->proc;
+  lock_acquire (&filesys_mutex);
+  {
+    if (proc->executable != NULL)
+      {
+        file_close (proc->executable);
+        proc->executable = NULL;
+      }
+    lock_acquire (&proc->fd_mutex);
+    {
+      int i;
+      for (i = 0; i < MAX_FD; i++)
+        if (proc->files[i] != NULL)
+          {
+            file_close (proc->files[i]);
+            proc->files[i] = NULL;
+          }
+    }
+    lock_release (&proc->fd_mutex);
+  }
+  lock_release (&filesys_mutex);
 }

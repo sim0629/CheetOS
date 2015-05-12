@@ -15,6 +15,7 @@ struct process
     pid_t pid;                 /* Same as TID of its thread. */
     pid_t ppid;                /* Parent's PID. */
     int exit_code;
+    struct file *executable;
 
     struct file *files[MAX_FD];
     struct lock fd_mutex;
