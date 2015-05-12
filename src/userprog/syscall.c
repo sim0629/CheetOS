@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "devices/shutdown.h"
+#include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -53,15 +54,26 @@ sys_wait (struct intr_frame *f)
 }
 
 static void
-sys_create (struct intr_frame *f UNUSED)
+sys_create (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  const char *file = (const char *)get_user_int (++p);
+  unsigned initial_size = (unsigned)get_user_int (++p);
+  check_user_string (file);
+  lock_acquire (&filesys_mutex);
+  f->eax = filesys_create (file, initial_size);
+  lock_release (&filesys_mutex);
 }
 
 static void
-sys_remove (struct intr_frame *f UNUSED)
+sys_remove (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  const char *file = (const char *)get_user_int (++p);
+  check_user_string (file);
+  lock_acquire (&filesys_mutex);
+  f->eax = filesys_remove (file);
+  lock_release (&filesys_mutex);
 }
 
 static void
