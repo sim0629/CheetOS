@@ -178,13 +178,30 @@ sys_write (struct intr_frame *f)
 static void
 sys_seek (struct intr_frame *f UNUSED)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  unsigned position = (unsigned)get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      file_seek (fp, position);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
 sys_tell (struct intr_frame *f UNUSED)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      f->eax = file_tell (fp);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
