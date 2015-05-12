@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "devices/shutdown.h"
+#include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -77,9 +78,20 @@ sys_remove (struct intr_frame *f)
 }
 
 static void
-sys_open (struct intr_frame *f UNUSED)
+sys_open (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  const char *file = (const char *)get_user_int (++p);
+  check_user_string (file);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = filesys_open (file);
+    int fd = process_alloc_fd (fp);
+    if (fd == FD_ERROR)
+      file_close (fp);
+    f->eax = fd;
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
@@ -129,9 +141,20 @@ sys_tell (struct intr_frame *f UNUSED)
 }
 
 static void
-sys_close (struct intr_frame *f UNUSED)
+sys_close (struct intr_frame *f)
 {
-  ASSERT (0);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    if (fp != NULL)
+      {
+        file_close (fp);
+        process_free_fd (fd);
+      }
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void

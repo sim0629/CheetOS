@@ -76,6 +76,8 @@ process_execute (const char *cmdline)
   proc->pid = TID_ERROR; // will be filled at thread_create_process
   proc->ppid = thread_tid ();
   proc->exit_code = -1;
+  memset (proc->files, 0, sizeof (proc->files));
+  lock_init (&proc->fd_mutex);
   sema_init (&proc->listed, 0);
   sema_init (&proc->exited, 0);
 
@@ -672,4 +674,55 @@ reap_proc (struct process *proc)
   list_remove (&proc->allelem);
   lock_release (&list_mutex);
   palloc_free_page (proc);
+}
+
+/* Allocates a file descriptor to file FP and returns the fd.
+   Returns FD_ERROR if exceed the limit number MAX_FD. */
+int
+process_alloc_fd (struct file *fp)
+{
+  struct process *proc = thread_current ()->proc;
+  int fd = FD_ERROR, i;
+  if (fp == NULL)
+    return fd;
+  lock_acquire (&proc->fd_mutex);
+  for (i = 0; i < MAX_FD; i++)
+    {
+      if (proc->files[i] == NULL)
+        {
+          proc->files[i] = fp;
+          fd = i + RESERVED_FD;
+          break;
+        }
+    }
+  lock_release (&proc->fd_mutex);
+  return fd;
+}
+
+/* Returns the open file associated with FD. */
+struct file *
+process_get_file (int fd)
+{
+  struct process *proc = thread_current ()->proc;
+  struct file *fp;
+  int i = fd - RESERVED_FD;
+  if (i < 0 || i >= MAX_FD)
+    return NULL;
+  lock_acquire (&proc->fd_mutex);
+  fp = proc->files[i];
+  lock_release (&proc->fd_mutex);
+  return fp;
+}
+
+/* Remove the FD from file descriptor table. */
+void
+process_free_fd (int fd)
+{
+  struct process *proc = thread_current ()->proc;
+  int i = fd - RESERVED_FD;
+  if (i < 0 || i >= MAX_FD)
+    return;
+  lock_acquire (&proc->fd_mutex);
+  proc->files[i] = NULL;
+  lock_release (&proc->fd_mutex);
 }
