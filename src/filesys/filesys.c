@@ -6,6 +6,9 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/synch.h"
+
+struct lock filesys_mutex;
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -17,6 +20,8 @@ static void do_format (void);
 void
 filesys_init (bool format) 
 {
+  lock_init (&filesys_mutex);
+
   fs_device = block_get_role (BLOCK_FILESYS);
   if (fs_device == NULL)
     PANIC ("No file system device found, can't initialize file system.");
