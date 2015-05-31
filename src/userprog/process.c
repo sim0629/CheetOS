@@ -26,7 +26,7 @@ static bool load (char *args_page, void (**eip) (void), void **esp);
 static void parse_args (char *cmdline_page, char *args_page);
 static struct process *get_proc_from_id (pid_t pid);
 static void make_children_orphan (pid_t pid);
-static void reap_proc (struct process *proc);
+static void reap_proc (struct process *proc, bool lock_required);
 static void close_all_files (void);
 
 void
@@ -160,7 +160,7 @@ process_wait (tid_t child_tid)
   sema_down (&child_proc->exited);
 
   status = child_proc->exit_code;
-  reap_proc (child_proc);
+  reap_proc (child_proc, true);
   return status;
 }
 
@@ -189,7 +189,7 @@ process_thread_exit ()
       printf ("%s: exit(%d)\n", cur->name, proc->exit_code);
       make_children_orphan (proc->pid);
       if (proc->ppid == TID_ERROR)
-        reap_proc (proc);
+        reap_proc (proc, true);
       else
         sema_up (&proc->exited);
     }
@@ -671,25 +671,31 @@ make_children_orphan (pid_t pid)
   lock_acquire (&list_mutex);
   {
     struct list_elem *e = list_begin (&all_list);
-    struct list_elem *f = list_end (&all_list);
-    for (; e != f; e = list_next (e))
+    while (e != list_end (&all_list))
       {
         struct process *p = list_entry (e, struct process, allelem);
         if (p->ppid == pid)
-          p->ppid = TID_ERROR;
+          {
+            p->ppid = TID_ERROR;
+            if (sema_try_down (&p->exited))
+              reap_proc (p, false);
+          }
+        e = list_next (e);
       }
   }
   lock_release (&list_mutex);
 }
 
 static void
-reap_proc (struct process *proc)
+reap_proc (struct process *proc, bool lock_required)
 {
   sema_down (&proc->listed);
 
-  lock_acquire (&list_mutex);
+  if (lock_required)
+    lock_acquire (&list_mutex);
   list_remove (&proc->allelem);
-  lock_release (&list_mutex);
+  if (lock_required)
+    lock_release (&list_mutex);
   palloc_free_page (proc);
 }
 
