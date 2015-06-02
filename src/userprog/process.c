@@ -103,7 +103,7 @@ process_execute (const char *cmdline)
   palloc_free_page (cmdline_page);
 
   sema_down (&proc->loaded);
-  if (proc->executable == NULL) /* load fail */
+  if (!proc->load_success) /* load fail */
     {
       process_wait (tid);
       return TID_ERROR;
@@ -418,6 +418,7 @@ load (char *args_page, void (**eip) (void), void **esp)
   /* We arrive here whether the load is successful or not. */
   if (filesys_mutex_held)
     lock_release (&filesys_mutex);
+  t->proc->load_success = success;
   sema_up (&t->proc->loaded);
   return success;
 }

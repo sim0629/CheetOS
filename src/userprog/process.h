@@ -20,6 +20,8 @@ struct process
     struct file *files[MAX_FD];
     struct lock fd_mutex;
 
+    bool load_success;
+
     struct semaphore listed;
     struct semaphore loaded;
     struct semaphore exited;
