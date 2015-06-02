@@ -311,6 +311,7 @@ load (char *args_page, void (**eip) (void), void **esp)
   bool success = false;
   int i;
   const char *file_name = *(const char **)(args_page + sizeof (size_t));
+  bool filesys_mutex_held = false;
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -319,6 +320,7 @@ load (char *args_page, void (**eip) (void), void **esp)
   process_activate ();
 
   lock_acquire (&filesys_mutex);
+  filesys_mutex_held = true;
 
   /* Open executable file. */
   file = filesys_open (file_name);
@@ -414,7 +416,8 @@ load (char *args_page, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  lock_release (&filesys_mutex);
+  if (filesys_mutex_held)
+    lock_release (&filesys_mutex);
   sema_up (&t->proc->loaded);
   return success;
 }
