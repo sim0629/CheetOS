@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "filesys/off_t.h"
+#include "filesys/cache.h"
 
 /* Sectors of system file inodes. */
 #define FREE_MAP_SECTOR 0       /* Free map file inode sector. */
@@ -10,6 +11,9 @@
 
 /* Owned by filesys.c */
 extern struct lock filesys_mutex;
+
+/* Owned by filesys.c */
+extern struct cache fs_cache;
 
 /* Block device that contains the file system. */
 struct block *fs_device;
