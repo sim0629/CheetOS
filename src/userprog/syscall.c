@@ -176,7 +176,7 @@ sys_write (struct intr_frame *f)
 }
 
 static void
-sys_seek (struct intr_frame *f UNUSED)
+sys_seek (struct intr_frame *f)
 {
   int *p = f->esp;
   int fd = get_user_int (++p);
@@ -191,7 +191,7 @@ sys_seek (struct intr_frame *f UNUSED)
 }
 
 static void
-sys_tell (struct intr_frame *f UNUSED)
+sys_tell (struct intr_frame *f)
 {
   int *p = f->esp;
   int fd = get_user_int (++p);
