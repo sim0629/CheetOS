@@ -6,6 +6,8 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
+#define PATH_DELIM '/'
+
 /* A directory. */
 struct dir 
   {
@@ -76,7 +78,7 @@ dir_open_root (void)
 /* Opens and returns a new directory for the same inode as DIR.
    Returns a null pointer on failure. */
 struct dir *
-dir_reopen (struct dir *dir) 
+dir_reopen (const struct dir *dir)
 {
   return dir_open (inode_reopen (dir->inode));
 }
@@ -250,5 +252,63 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
           return true;
         } 
     }
+  return false;
+}
+
+/* Resolve relative/absolute path from current directory. */
+bool
+dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
+{
+  struct dir *dir;
+  struct dir_entry entry;
+  const char *curr, *next;
+  char name[NAME_MAX + 1];
+
+  if (path[0] == '\0')
+    return false;
+
+  if (path[0] == PATH_DELIM)
+    {
+      curr = path + 1;
+      dir = dir_open_root ();
+    }
+  else
+    {
+      curr = path;
+      dir = dir_reopen (cd);
+    }
+
+  if (dir == NULL)
+    return false;
+
+  while (true)
+    {
+      next = strchr(curr, PATH_DELIM);
+      if (next == NULL)
+        {
+          *resolved = dir;
+          return true;
+        }
+      if (next - curr > NAME_MAX)
+        goto fail;
+      else if (next - curr > 0)
+        {
+          strlcpy (name, curr, next - curr + 1);
+
+          if (!lookup (dir, name, &entry, NULL))
+            goto fail;
+          if (!entry.is_directory)
+            goto fail;
+
+          dir_close (dir);
+          dir = dir_open (inode_open (entry.inode_sector));
+          if (dir == NULL)
+            return false;
+        }
+      curr = next;
+    }
+
+fail:
+  dir_close (dir);
   return false;
 }
