@@ -7,6 +7,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -305,6 +306,38 @@ sys_readdir (struct intr_frame *f)
 }
 
 static void
+sys_isdir (struct intr_frame *f)
+{
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct dir *dp = process_get_dir (fd);
+    f->eax = dp != NULL;
+  }
+  lock_release (&filesys_mutex);
+}
+
+static void
+sys_inumber (struct intr_frame *f)
+{
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  lock_acquire (&filesys_mutex);
+  {
+    struct file *fp = process_get_file (fd);
+    struct dir *dp = process_get_dir (fd);
+    if (fp != NULL)
+      f->eax = inode_get_sector (file_get_inode (fp));
+    else if (dp != NULL)
+      f->eax = inode_get_sector (dir_get_inode (dp));
+    else
+      f->eax = -1;
+  }
+  lock_release (&filesys_mutex);
+}
+
+static void
 syscall_handler (struct intr_frame *f)
 {
   int n = get_user_int (f->esp);
@@ -357,6 +390,12 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_READDIR:
       sys_readdir (f);
+      break;
+    case SYS_ISDIR:
+      sys_isdir (f);
+      break;
+    case SYS_INUMBER:
+      sys_inumber (f);
       break;
     default:
       printf ("Unknown system call: %d\n", n);
