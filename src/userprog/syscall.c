@@ -222,6 +222,24 @@ sys_close (struct intr_frame *f)
 }
 
 static void
+sys_chdir (struct intr_frame *f UNUSED)
+{
+  ASSERT (false);
+}
+
+static void
+sys_mkdir (struct intr_frame *f UNUSED)
+{
+  ASSERT (false);
+}
+
+static void
+sys_readdir (struct intr_frame *f UNUSED)
+{
+  ASSERT (false);
+}
+
+static void
 syscall_handler (struct intr_frame *f)
 {
   int n = get_user_int (f->esp);
@@ -265,6 +283,15 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CLOSE:
       sys_close (f);
+      break;
+    case SYS_CHDIR:
+      sys_chdir (f);
+      break;
+    case SYS_MKDIR:
+      sys_mkdir (f);
+      break;
+    case SYS_READDIR:
+      sys_readdir (f);
       break;
     default:
       printf ("Unknown system call: %d\n", n);
