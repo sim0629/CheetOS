@@ -30,6 +30,7 @@ bool dir_remove (struct dir *, const char *name);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
 
 /* Subdirectories. */
-bool dir_resolve (const struct dir *, const char *path, struct dir **);
+bool dir_resolve (const struct dir *, const char *path, struct dir **,
+                  char *filename);
 
 #endif /* filesys/directory.h */

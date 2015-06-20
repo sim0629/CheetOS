@@ -19,8 +19,6 @@ struct block *fs_device;
 
 static void do_format (void);
 
-static const char *extract_name (const char *);
-
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
 void
@@ -62,18 +60,15 @@ filesys_create (const char *path, off_t initial_size)
 {
   block_sector_t inode_sector = 0;
   struct dir *dir = NULL;
-  const char *name = NULL;
+  char name[NAME_MAX + 1] = { '\0' };
   bool success = false;
 
-  name = extract_name (path);
-  if (name[0] == '\0')
-    return false;
-
-  if (!dir_resolve (thread_current ()->cd, path, &dir))
+  if (!dir_resolve (thread_current ()->cd, path, &dir, name))
     return false;
   ASSERT (dir != NULL);
 
-  success = (free_map_allocate (1, &inode_sector)
+  success = (name[0] != '\0'
+          && free_map_allocate (1, &inode_sector)
           && inode_create (inode_sector, initial_size)
           && dir_add (dir, name, inode_sector, false));
 
@@ -100,13 +95,11 @@ filesys_open_inode (const char *path)
 {
   struct dir *dir = NULL;
   struct inode *inode = NULL;
-  const char *name;
+  char name[NAME_MAX + 1] = { '\0' };
 
-  if (!dir_resolve (thread_current ()->cd, path, &dir))
+  if (!dir_resolve (thread_current ()->cd, path, &dir, name))
     return false;
   ASSERT (dir != NULL);
-
-  name = extract_name (path);
 
   if (name[0] == '\0')
     inode = dir_get_inode (dir);
@@ -125,14 +118,12 @@ bool
 filesys_remove (const char *path)
 {
   struct dir *dir = NULL;
-  const char *name;
+  char name[NAME_MAX + 1] = { '\0' };
   bool success = false;
 
-  if (!dir_resolve (thread_current ()->cd, path, &dir))
+  if (!dir_resolve (thread_current ()->cd, path, &dir, name))
     return false;
   ASSERT (dir != NULL);
-
-  name = extract_name (path);
 
   if (name[0] == '\0')
     {
@@ -158,17 +149,4 @@ do_format (void)
     PANIC ("root directory creation failed");
   free_map_close ();
   printf ("done.\n");
-}
-
-/* Extract file name from path. */
-static const char *
-extract_name (const char *path)
-{
-  const char *name = NULL;
-
-  name = strrchr (path, PATH_DELIM);
-  if (name == NULL)
-    return path;
-
-  return ++name;
 }

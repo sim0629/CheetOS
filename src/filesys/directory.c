@@ -278,7 +278,8 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 
 /* Resolve relative/absolute path from current directory. */
 bool
-dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
+dir_resolve (const struct dir *cd, const char *path, struct dir **resolved,
+             char *filename)
 {
   struct dir *dir;
   struct dir_entry entry;
@@ -310,7 +311,11 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
       next = strchr(curr, PATH_DELIM);
       if (next == NULL)
         {
+          if (strlen (curr) > NAME_MAX)
+            goto fail;
           *resolved = dir;
+          if (filename != NULL)
+            strlcpy (filename, curr, NAME_MAX + 1);
           return true;
         }
       if (next - curr > NAME_MAX)
@@ -329,7 +334,7 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
           if (dir == NULL)
             return false;
         }
-      curr = next;
+      curr = next + 1;
     }
 
 fail:
