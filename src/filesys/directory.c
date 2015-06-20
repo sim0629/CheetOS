@@ -6,8 +6,6 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
-#define PATH_DELIM '/'
-
 /* A directory. */
 struct dir 
   {
@@ -23,6 +21,8 @@ struct dir_entry
     bool in_use;                        /* In use or free? */
     bool is_directory;
   };
+
+static bool is_empty (const struct dir *);
 
 static inline bool
 is_special (const char *name)
@@ -231,6 +231,17 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  /* Check emptiness for diretory. */
+  if (e.is_directory)
+    {
+      struct dir *dir = dir_open (inode);
+      if (!is_empty (dir))
+        {
+          dir_close (dir);
+          return false;
+        }
+    }
+
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -285,7 +296,10 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
   else
     {
       curr = path;
-      dir = dir_reopen (cd);
+      if (cd == NULL)
+        dir = dir_open_root ();
+      else
+        dir = dir_reopen (cd);
     }
 
   if (dir == NULL)
@@ -321,4 +335,25 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved)
 fail:
   dir_close (dir);
   return false;
+}
+
+/* Returns if dir is empty or not. */
+static bool
+is_empty (const struct dir *dir)
+{
+  struct dir_entry e;
+  size_t ofs;
+  size_t count = 0;
+
+  ASSERT (dir != NULL);
+
+  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+       ofs += sizeof e)
+    if (e.in_use)
+      {
+        count++;
+        if (count > 2)
+          return false;
+      }
+  return true;
 }
