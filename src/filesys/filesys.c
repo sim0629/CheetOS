@@ -164,8 +164,7 @@ filesys_remove (const char *path)
 
   if (name[0] == '\0')
     {
-      // TODO: dealing with trailing PATH_DELIM
-      ASSERT (false);
+      success = dir_remove_self (dir);
     }
   else
     {

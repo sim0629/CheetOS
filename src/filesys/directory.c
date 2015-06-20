@@ -369,6 +369,34 @@ fail:
   return false;
 }
 
+/* Remove given DIR from its parent. */
+bool
+dir_remove_self (const struct dir *dir)
+{
+  struct dir *parent_dir;
+  struct dir_entry e;
+  block_sector_t sector = inode_get_sector (dir->inode);
+  bool success = false;
+
+  if (!dir_resolve (dir, "..", &parent_dir, NULL))
+    return false;
+
+  while (inode_read_at (parent_dir->inode, &e, sizeof e, parent_dir->pos)
+    == sizeof e)
+    {
+      parent_dir->pos += sizeof e;
+      if (e.in_use && e.inode_sector == sector)
+        {
+          success = dir_remove (parent_dir, e.name);
+          goto done;
+        }
+    }
+
+done:
+  dir_close (parent_dir);
+  return success;
+}
+
 /* Returns if dir is empty or not. */
 static bool
 is_empty (const struct dir *dir)
