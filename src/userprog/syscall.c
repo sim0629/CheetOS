@@ -231,29 +231,13 @@ sys_chdir (struct intr_frame *f)
   lock_acquire (&filesys_mutex);
   {
     struct dir *current_dir = thread_current ()->cd;
-    struct dir *parent_dir = NULL;
     struct dir *dir = NULL;
-    char name[NAME_MAX + 1] = { '\0' };
     bool success = false;
-    if (!dir_resolve (thread_current ()->cd, path, &parent_dir, name))
-      {
-      }
-    else if (name[0] == '\0')
+    if (dir_resolve (current_dir, path, &dir, NULL))
       {
         dir_close (current_dir);
-        thread_current ()->cd = parent_dir;
-        success = true;
-      }
-    else if (dir_resolve (parent_dir, name, &dir, NULL))
-      {
-        dir_close (current_dir);
-        dir_close (parent_dir);
         thread_current ()->cd = dir;
         success = true;
-      }
-    else
-      {
-        dir_close (parent_dir);
       }
     f->eax = success;
   }

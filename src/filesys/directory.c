@@ -285,9 +285,20 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved,
   struct dir_entry entry;
   const char *curr, *next;
   char name[NAME_MAX + 1];
+  char *dir_path = NULL;
 
   if (path[0] == '\0')
     return false;
+
+  if (filename == NULL)
+    {
+      size_t path_len = strlen (path);
+      dir_path = malloc ((path_len + 2) * sizeof (char));
+      strlcpy (dir_path, path, path_len + 1);
+      dir_path[path_len] = PATH_DELIM;
+      dir_path[path_len + 1] = '\0';
+      path = dir_path;
+    }
 
   if (path[0] == PATH_DELIM)
     {
@@ -304,7 +315,11 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved,
     }
 
   if (dir == NULL)
-    return false;
+    {
+      if (dir_path != NULL)
+        free (dir_path);
+      return false;
+    }
 
   while (true)
     {
@@ -316,6 +331,8 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved,
           *resolved = dir;
           if (filename != NULL)
             strlcpy (filename, curr, NAME_MAX + 1);
+          if (dir_path != NULL)
+            free (dir_path);
           return true;
         }
       if (next - curr > NAME_MAX)
@@ -332,13 +349,19 @@ dir_resolve (const struct dir *cd, const char *path, struct dir **resolved,
           dir_close (dir);
           dir = dir_open (inode_open (entry.inode_sector));
           if (dir == NULL)
-            return false;
+            {
+              if (dir_path != NULL)
+                free (dir_path);
+              return false;
+            }
         }
       curr = next + 1;
     }
 
 fail:
   dir_close (dir);
+  if (dir_path != NULL)
+    free (dir_path);
   return false;
 }
 
