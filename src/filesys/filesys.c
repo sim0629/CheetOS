@@ -79,6 +79,39 @@ filesys_create (const char *path, off_t initial_size)
   return success;
 }
 
+/* Make a directory located at PATH. */
+bool
+filesys_mkdir (const char *path)
+{
+  block_sector_t inode_sector = 0;
+  struct dir *dir = NULL;
+  char name[NAME_MAX + 1] = { '\0' };
+  bool success = false;
+
+  if (!dir_resolve (thread_current ()->cd, path, &dir, name))
+    return false;
+  ASSERT (dir != NULL);
+
+  if (name[0] == '\0')
+    {
+      // not implemented
+      ASSERT (false);
+    }
+  else
+    {
+      success = (free_map_allocate (1, &inode_sector)
+              && dir_create (inode_sector,
+                inode_get_sector (dir_get_inode (dir)))
+              && dir_add (dir, name, inode_sector, true));
+    }
+
+  if (!success && inode_sector != 0)
+    free_map_release (inode_sector, 1);
+  dir_close (dir);
+
+  return success;
+}
+
 struct file *
 filesys_open (const char *path)
 {
@@ -98,7 +131,7 @@ filesys_open_inode (const char *path)
   char name[NAME_MAX + 1] = { '\0' };
 
   if (!dir_resolve (thread_current ()->cd, path, &dir, name))
-    return false;
+    return NULL;
   ASSERT (dir != NULL);
 
   if (name[0] == '\0')

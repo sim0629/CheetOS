@@ -5,6 +5,7 @@
 #include "devices/shutdown.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/directory.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -222,15 +223,54 @@ sys_close (struct intr_frame *f)
 }
 
 static void
-sys_chdir (struct intr_frame *f UNUSED)
+sys_chdir (struct intr_frame *f)
 {
-  ASSERT (false);
+  int *p = f->esp;
+  const char *path = (const char *)get_user_int (++p);
+  check_user_string (path);
+  lock_acquire (&filesys_mutex);
+  {
+    struct dir *current_dir = thread_current ()->cd;
+    struct dir *parent_dir = NULL;
+    struct dir *dir = NULL;
+    char name[NAME_MAX + 1] = { '\0' };
+    bool success = false;
+    if (!dir_resolve (thread_current ()->cd, path, &parent_dir, name))
+      {
+      }
+    else if (name[0] == '\0')
+      {
+        dir_close (current_dir);
+        thread_current ()->cd = parent_dir;
+        success = true;
+      }
+    else if (dir_resolve (parent_dir, name, &dir, NULL))
+      {
+        dir_close (current_dir);
+        dir_close (parent_dir);
+        thread_current ()->cd = dir;
+        success = true;
+      }
+    else
+      {
+        dir_close (parent_dir);
+      }
+    f->eax = success;
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
-sys_mkdir (struct intr_frame *f UNUSED)
+sys_mkdir (struct intr_frame *f)
 {
-  ASSERT (false);
+  int *p = f->esp;
+  const char *path = (const char *)get_user_int (++p);
+  check_user_string (path);
+  lock_acquire (&filesys_mutex);
+  {
+    f->eax = filesys_mkdir (path);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void
