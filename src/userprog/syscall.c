@@ -193,6 +193,8 @@ sys_write (struct intr_frame *f)
     struct file *fp = process_get_file (fd);
     if (fp != NULL)
       f->eax = file_write (fp, buffer, size);
+    else
+      f->eax = -1;
   }
   lock_release (&filesys_mutex);
 }
