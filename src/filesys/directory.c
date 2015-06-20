@@ -25,9 +25,24 @@ struct dir_entry
 /* Creates a directory in the given SECTOR.
    Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector)
+dir_create (block_sector_t sector, block_sector_t parent)
 {
-  return inode_create (sector, 0);
+  struct dir *dir;
+
+  if (!inode_create (sector, 0))
+    return false;
+
+  dir = dir_open (inode_open (sector));
+  if (dir == NULL)
+    return false;
+
+  if (!dir_add (dir, ".", sector, true))
+    return false;
+  if (!dir_add (dir, "..", parent, true))
+    return false;
+
+  dir_close (dir);
+  return true;
 }
 
 /* Opens and returns the directory for the given INODE, of which

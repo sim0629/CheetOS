@@ -14,7 +14,7 @@
 struct inode;
 
 /* Opening and closing directories. */
-bool dir_create (block_sector_t sector);
+bool dir_create (block_sector_t sector, block_sector_t parent);
 struct dir *dir_open (struct inode *);
 struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
