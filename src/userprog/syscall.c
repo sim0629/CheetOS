@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <user/syscall.h>
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -83,15 +84,35 @@ static void
 sys_open (struct intr_frame *f)
 {
   int *p = f->esp;
-  const char *file = (const char *)get_user_int (++p);
-  check_user_string (file);
+  const char *path = (const char *)get_user_int (++p);
+  check_user_string (path);
   lock_acquire (&filesys_mutex);
   {
-    struct file *fp = filesys_open (file);
+#ifdef FILESYS
+    bool is_directory = false;
+    struct inode *inode = filesys_open_inode (path, &is_directory);
+    struct file *fp;
+    int fd = FD_ERROR;
+    if (is_directory)
+      fp = (struct file *)dir_open (inode);
+    else
+      fp = file_open (inode);
+    fd = process_alloc_fd (fp, is_directory);
+    if (fd == FD_ERROR)
+      {
+        if (is_directory)
+          dir_close ((struct dir *)fp);
+        else
+          file_close (fp);
+      }
+    f->eax = fd;
+#else
+    struct file *fp = filesys_open (path);
     int fd = process_alloc_fd (fp);
     if (fd == FD_ERROR)
       file_close (fp);
     f->eax = fd;
+#endif
   }
   lock_release (&filesys_mutex);
 }
@@ -213,9 +234,15 @@ sys_close (struct intr_frame *f)
   lock_acquire (&filesys_mutex);
   {
     struct file *fp = process_get_file (fd);
+    struct dir *dp = process_get_dir (fd);
     if (fp != NULL)
       {
         file_close (fp);
+        process_free_fd (fd);
+      }
+    else if (dp != NULL)
+      {
+        dir_close (dp);
         process_free_fd (fd);
       }
   }
@@ -258,9 +285,21 @@ sys_mkdir (struct intr_frame *f)
 }
 
 static void
-sys_readdir (struct intr_frame *f UNUSED)
+sys_readdir (struct intr_frame *f)
 {
-  ASSERT (false);
+  int *p = f->esp;
+  int fd = get_user_int (++p);
+  char *name = (char *)get_user_int (++p);
+  check_user_buffer (name, READDIR_MAX_LEN + 1, true);
+  lock_acquire (&filesys_mutex);
+  {
+    struct dir *dp = process_get_dir (fd);
+    if (dp == NULL)
+      f->eax = false;
+    else
+      f->eax = dir_readdir (dp, name);
+  }
+  lock_release (&filesys_mutex);
 }
 
 static void

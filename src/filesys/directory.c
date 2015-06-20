@@ -142,7 +142,7 @@ lookup (const struct dir *dir, const char *name,
    a null pointer.  The caller must close *INODE. */
 bool
 dir_lookup (const struct dir *dir, const char *name,
-            struct inode **inode) 
+            struct inode **inode, bool *is_directory)
 {
   struct dir_entry e;
 
@@ -150,7 +150,11 @@ dir_lookup (const struct dir *dir, const char *name,
   ASSERT (name != NULL);
 
   if (lookup (dir, name, &e, NULL))
-    *inode = inode_open (e.inode_sector);
+    {
+      if (is_directory != NULL)
+        *is_directory = e.is_directory;
+      *inode = inode_open (e.inode_sector);
+    }
   else
     *inode = NULL;
 
@@ -267,7 +271,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
-      if (e.in_use)
+      if (e.in_use && !is_special(e.name))
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;

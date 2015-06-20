@@ -115,7 +115,7 @@ filesys_mkdir (const char *path)
 struct file *
 filesys_open (const char *path)
 {
-  return file_open (filesys_open_inode (path));
+  return file_open (filesys_open_inode (path, NULL));
 }
 
 /* Opens the inode with the given PATH.
@@ -124,7 +124,7 @@ filesys_open (const char *path)
    Fails if no inode is located at PATH,
    or if an internal memory allocation fails. */
 struct inode *
-filesys_open_inode (const char *path)
+filesys_open_inode (const char *path, bool *is_directory)
 {
   struct dir *dir = NULL;
   struct inode *inode = NULL;
@@ -135,9 +135,13 @@ filesys_open_inode (const char *path)
   ASSERT (dir != NULL);
 
   if (name[0] == '\0')
-    inode = dir_get_inode (dir);
+    {
+      if (is_directory != NULL)
+        *is_directory = true;
+      inode = dir_get_inode (dir);
+    }
   else
-    dir_lookup (dir, name, &inode);
+    dir_lookup (dir, name, &inode, is_directory);
 
   dir_close (dir);
   return inode;

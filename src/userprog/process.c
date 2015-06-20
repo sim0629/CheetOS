@@ -706,7 +706,7 @@ reap_proc (struct process *proc, bool lock_required)
 /* Allocates a file descriptor to file FP and returns the fd.
    Returns FD_ERROR if exceed the limit number MAX_FD. */
 int
-process_alloc_fd (struct file *fp)
+process_alloc_fd (struct file *fp, bool is_directory)
 {
   struct process *proc = thread_current ()->proc;
   int fd = FD_ERROR, i;
@@ -717,7 +717,7 @@ process_alloc_fd (struct file *fp)
     {
       if (proc->fds[i].value == NULL)
         {
-          proc->fds[i].type = FD_FILE;
+          proc->fds[i].type = is_directory ? FD_DIR : FD_FILE;
           proc->fds[i].value = fp;
           fd = i + RESERVED_FD;
           break;
@@ -732,14 +732,31 @@ struct file *
 process_get_file (int fd)
 {
   struct process *proc = thread_current ()->proc;
-  struct file *fp;
+  struct file *fp = NULL;
   int i = fd - RESERVED_FD;
   if (i < 0 || i >= MAX_FD)
     return NULL;
   lock_acquire (&proc->fd_mutex);
-  fp = (struct file *)proc->fds[i].value;
+  if (proc->fds[i].type == FD_FILE)
+    fp = (struct file *)proc->fds[i].value;
   lock_release (&proc->fd_mutex);
   return fp;
+}
+
+/* Returns the open dir associated with FD. */
+struct dir *
+process_get_dir (int fd)
+{
+  struct process *proc = thread_current ()->proc;
+  struct dir *dp = NULL;
+  int i = fd - RESERVED_FD;
+  if (i < 0 || i >= MAX_FD)
+    return NULL;
+  lock_acquire (&proc->fd_mutex);
+  if (proc->fds[i].type == FD_DIR)
+    dp = (struct dir *)proc->fds[i].value;
+  lock_release (&proc->fd_mutex);
+  return dp;
 }
 
 /* Remove the FD from file descriptor table. */

@@ -49,8 +49,9 @@ void process_exit (int);
 void process_thread_exit (void);
 void process_activate (void);
 
-int process_alloc_fd (struct file *);
+int process_alloc_fd (struct file *, bool is_directory);
 struct file *process_get_file (int fd);
+struct dir *process_get_dir (int fd);
 void process_free_fd (int fd);
 
 #endif /* userprog/process.h */
