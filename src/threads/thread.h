@@ -27,6 +27,9 @@ typedef int tid_t;
 #ifdef USERPROG
 struct process;
 #endif
+#ifdef FILESYS
+struct dir;
+#endif
 
 /* A kernel thread or user process.
 
@@ -105,6 +108,9 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct process *proc;               /* User process for the thread. */
+#endif
+#ifdef FILESYS
+    struct dir *cd;                     /* Current directory. */
 #endif
 
     /* Owned by thread.c. */

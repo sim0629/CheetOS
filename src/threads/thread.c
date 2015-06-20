@@ -15,6 +15,9 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#ifdef FILESYS
+#include "filesys/directory.h"
+#endif
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -216,6 +219,15 @@ thread_create_process (const char *name, int priority,
     proc->pid = tid;
   }
 #endif
+#ifdef FILESYS
+  if (proc != NULL)
+    {
+      if (thread_current ()->cd == NULL)
+        t->cd = dir_open_root ();
+      else
+        t->cd = dir_reopen (thread_current ()->cd);
+    }
+#endif
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -320,6 +332,13 @@ thread_exit (void)
 
 #ifdef USERPROG
   process_thread_exit ();
+#endif
+#ifdef FILESYS
+  if (thread_current ()->cd != NULL)
+    {
+      dir_close (thread_current ()->cd);
+      thread_current ()->cd = NULL;
+    }
 #endif
 
   /* Remove thread from all threads list, set our status to dying,
@@ -526,6 +545,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init (&t->holding_locks);
   t->waiting_lock = NULL;
   t->magic = THREAD_MAGIC;
+#ifdef FILESYS
+  t->cd = NULL;
+#endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
