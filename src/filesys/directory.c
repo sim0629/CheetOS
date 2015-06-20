@@ -24,6 +24,13 @@ struct dir_entry
     bool is_directory;
   };
 
+static inline bool
+is_special (const char *name)
+{
+  return strcmp (name, ".") == 0
+      || strcmp (name, "..") == 0;
+}
+
 /* Creates a directory in the given SECTOR.
    Returns true if successful, false on failure. */
 bool
@@ -211,6 +218,9 @@ dir_remove (struct dir *dir, const char *name)
 
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
+
+  if (is_special (name))
+    return false;
 
   /* Find directory entry. */
   if (!lookup (dir, name, &e, &ofs))
