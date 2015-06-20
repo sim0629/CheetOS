@@ -10,6 +10,18 @@
 #define RESERVED_FD   2  /* 0 and 1 are reserved for stdin and stdout. */
 #define FD_ERROR   (-1)
 
+struct file;
+struct dir;
+
+#define FD_FILE 1
+#define FD_DIR  2
+
+struct fd
+  {
+    int type;
+    void *value;
+  };
+
 struct process
   {
     pid_t pid;                 /* Same as TID of its thread. */
@@ -17,7 +29,7 @@ struct process
     int exit_code;
     struct file *executable;
 
-    struct file *files[MAX_FD];
+    struct fd fds[MAX_FD];
     struct lock fd_mutex;
 
     bool load_success;

@@ -78,7 +78,7 @@ process_execute (const char *cmdline)
   proc->ppid = thread_tid ();
   proc->exit_code = -1;
   proc->executable = NULL;
-  memset (proc->files, 0, sizeof (proc->files));
+  memset (proc->fds, 0, sizeof (proc->fds));
   lock_init (&proc->fd_mutex);
   sema_init (&proc->listed, 0);
   sema_init (&proc->loaded, 0);
@@ -715,9 +715,10 @@ process_alloc_fd (struct file *fp)
   lock_acquire (&proc->fd_mutex);
   for (i = 0; i < MAX_FD; i++)
     {
-      if (proc->files[i] == NULL)
+      if (proc->fds[i].value == NULL)
         {
-          proc->files[i] = fp;
+          proc->fds[i].type = FD_FILE;
+          proc->fds[i].value = fp;
           fd = i + RESERVED_FD;
           break;
         }
@@ -736,7 +737,7 @@ process_get_file (int fd)
   if (i < 0 || i >= MAX_FD)
     return NULL;
   lock_acquire (&proc->fd_mutex);
-  fp = proc->files[i];
+  fp = (struct file *)proc->fds[i].value;
   lock_release (&proc->fd_mutex);
   return fp;
 }
@@ -750,7 +751,7 @@ process_free_fd (int fd)
   if (i < 0 || i >= MAX_FD)
     return;
   lock_acquire (&proc->fd_mutex);
-  proc->files[i] = NULL;
+  proc->fds[i].value = NULL;
   lock_release (&proc->fd_mutex);
 }
 
@@ -769,10 +770,13 @@ close_all_files ()
     {
       int i;
       for (i = 0; i < MAX_FD; i++)
-        if (proc->files[i] != NULL)
+        if (proc->fds[i].value != NULL)
           {
-            file_close (proc->files[i]);
-            proc->files[i] = NULL;
+            if (proc->fds[i].type == FD_FILE)
+              file_close (proc->fds[i].value);
+            else
+              dir_close (proc->fds[i].value);
+            proc->fds[i].value = NULL;
           }
     }
     lock_release (&proc->fd_mutex);
