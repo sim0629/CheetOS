@@ -166,8 +166,7 @@ inode_open (block_sector_t sector)
       inode = list_entry (e, struct inode, elem);
       if (inode->sector == sector) 
         {
-          inode_reopen (inode);
-          return inode; 
+          return inode_reopen (inode);
         }
     }
 
@@ -190,6 +189,8 @@ inode_open (block_sector_t sector)
 struct inode *
 inode_reopen (struct inode *inode)
 {
+  if (inode->removed)
+    return NULL;
   if (inode != NULL)
     inode->open_cnt++;
   return inode;
